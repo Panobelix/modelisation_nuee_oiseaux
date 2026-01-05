@@ -8,436 +8,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-// =====================================================================
-// VECTEUR 3D
-// =====================================================================
-class Vector3D {
-    public double x, y, z;
-
-    public Vector3D(double x, double y, double z) {
-        this.x = x; this.y = y; this.z = z;
-    }
-
-    public Vector3D copy() { return new Vector3D(x, y, z); }
-    public void add(Vector3D v) { x += v.x; y += v.y; z += v.z; }
-    public void sub(Vector3D v) { x -= v.x; y -= v.y; z -= v.z; }
-    public void mult(double n) { x *= n; y *= n; z *= n; }
-    public void div(double n) { x /= n; y /= n; z /= n; }
-    
-    public double mag() { return Math.sqrt(x*x + y*y + z*z); }
-    public double magSq() { return x*x + y*y + z*z; }
-    
-    public void normalize() {
-        double m = mag();
-        if (m > 0) div(m);
-    }
-    
-    public void limit(double max) {
-        if (magSq() > max * max) {
-            normalize();
-            mult(max);
-        }
-    }
-
-    public void setMag(double len) {
-        normalize();
-        mult(len);
-    }
-
-    public double dot(Vector3D v) {
-        return x * v.x + y * v.y + z * v.z;
-    }
-
-    public static Vector3D sub(Vector3D v1, Vector3D v2) {
-        return new Vector3D(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
-    }
-
-    public static double distSq(Vector3D v1, Vector3D v2) {
-        return Math.pow(v1.x - v2.x, 2) + Math.pow(v1.y - v2.y, 2) + Math.pow(v1.z - v2.z, 2);
-    }
-
-    public static Vector3D cross(Vector3D v1, Vector3D v2) {
-        return new Vector3D(
-            v1.y * v2.z - v1.z * v2.y,
-            v1.z * v2.x - v1.x * v2.z,
-            v1.x * v2.y - v1.y * v2.x
-        );
-    }
-}
-
-// =====================================================================
-// VENT & PARTICULES
-// =====================================================================
-class WindField {
-    double time = 0;
-    
-    public void update(double dt) {
-        time += dt;
-    }
-
-    public Vector3D getForce(Vector3D pos) {
-        double scale = 0.003;
-        double angleY = pos.x * scale + time * 0.5;
-        double angleX = pos.y * scale + time * 0.3;
-        double angleZ = pos.z * scale + time * 0.4;
-
-        double wx = Math.cos(angleX);
-        double wy = Math.sin(angleZ); 
-        double wz = Math.cos(angleY); 
-
-        Vector3D w = new Vector3D(wx, wy, wz);
-        w.mult(0.15); 
-        return w;
-    }
-}
-
-class DustParticle {
-    Vector3D pos;
-    Random r = new Random();
-    
-    public DustParticle(double boxSize) {
-        respawn(boxSize);
-    }
-    
-    public void respawn(double boxSize) {
-        pos = new Vector3D(
-            (r.nextDouble()*2-1) * boxSize/2,
-            (r.nextDouble()*2-1) * boxSize/2,
-            (r.nextDouble()*2-1) * boxSize/2
-        );
-    }
-    
-    public void update(WindField wind, double dt, double boxSize) {
-        Vector3D w = wind.getForce(pos);
-        w.mult(30.0); 
-        pos.add(w);
-        
-        if (Math.abs(pos.x) > boxSize/2) pos.x *= -0.95;
-        if (Math.abs(pos.y) > boxSize/2) pos.y *= -0.95;
-        if (Math.abs(pos.z) > boxSize/2) pos.z *= -0.95;
-    }
-}
-
-// =====================================================================
-// NOURRITURE
-// =====================================================================
-class FoodResource {
-    Vector3D pos;
-    double limit;
-    double scentRadius = 350;
-    Random r = new Random();
-    
-    public FoodResource(double boxSize) {
-        this.limit = boxSize / 2 - 100;
-        respawn();
-    }
-    public void respawn() {
-        pos = new Vector3D((r.nextDouble()*2-1)*limit, (r.nextDouble()*2-1)*limit, (r.nextDouble()*2-1)*limit);
-    }
-}
-
-// =====================================================================
-// PRÉDATEUR
-// =====================================================================
-class Predator {
-    Vector3D pos, vel;
-    double huntSpeed = 9.0; 
-    double digestSpeed = 3.5;
-    
-    enum State { HUNTING, DIGESTING }
-    State state = State.HUNTING;
-    
-    int totalBirdsEaten = 0;
-    int sessionBirdsEaten = 0;
-    final int HUNGER_QUOTA = 2; 
-    
-    double digestionTimer = 0;
-    double roarRadius = 300; 
-    boolean isRoaring = false;
-    double roarTimer = 0;
-    
-    Random rand = new Random();
-    
-    public Predator() {
-        resetPosition();
-        resetHunt();
-    }
-    
-    public void resetPosition() {
-        pos = new Vector3D(0,0,0);
-        vel = new Vector3D(1, 1, 1);
-    }
-    
-    private void resetHunt() {
-        state = State.HUNTING;
-        sessionBirdsEaten = 0;
-        triggerRoar();
-    }
-    
-    private void triggerRoar() {
-        isRoaring = true; 
-        roarTimer = 2.0; 
-    }
-    
-    public void update(List<Bird> birds, double dt, double boxSize, Vector3D windForce) {
-        if (isRoaring) {
-            roarTimer -= dt;
-            if (roarTimer <= 0) isRoaring = false;
-        }
-
-        Vector3D acc = new Vector3D(0,0,0);
-        
-        if (state == State.DIGESTING) {
-            digestionTimer -= dt;
-            if (digestionTimer <= 0) {
-                resetHunt();
-            } else {
-                Vector3D wander = new Vector3D(rand.nextDouble()-0.5, rand.nextDouble()-0.5, rand.nextDouble()-0.5);
-                wander.normalize();
-                wander.mult(0.6);
-                acc.add(wander);
-            }
-        } else {
-            Bird closest = null;
-            double minDist = Double.MAX_VALUE;
-            for (Bird b : birds) {
-                double d = Vector3D.distSq(pos, b.pos);
-                if (d < minDist) { minDist = d; closest = b; }
-            }
-            
-            if (closest != null) {
-                Vector3D desired = Vector3D.sub(closest.pos, pos);
-                desired.normalize();
-                desired.mult(huntSpeed);
-                Vector3D steer = Vector3D.sub(desired, vel);
-                steer.limit(0.4); 
-                acc.add(steer);
-            }
-            if (!isRoaring && rand.nextDouble() < 0.005) triggerRoar();
-        }
-        
-        acc.add(windForce);
-        vel.add(acc);
-        
-        double currentMax = (state == State.HUNTING) ? huntSpeed : digestSpeed;
-        vel.limit(currentMax);
-        
-        if (state == State.DIGESTING && vel.mag() > digestSpeed) vel.setMag(digestSpeed);
-
-        pos.add(vel);
-        
-        double limit = boxSize / 2;
-        if (pos.x > limit) { pos.x = limit; vel.x *= -1; }
-        else if (pos.x < -limit) { pos.x = -limit; vel.x *= -1; }
-        
-        if (pos.y > limit) { pos.y = limit; vel.y *= -1; }
-        else if (pos.y < -limit) { pos.y = -limit; vel.y *= -1; }
-        
-        if (pos.z > limit) { pos.z = limit; vel.z *= -1; }
-        else if (pos.z < -limit) { pos.z = -limit; vel.z *= -1; }
-    }
-    
-    public boolean checkEat(List<Bird> birds) {
-        if (state != State.HUNTING) return false;
-        
-        for (int i=0; i<birds.size(); i++) {
-            if (Vector3D.distSq(pos, birds.get(i).pos) < 169) { 
-                birds.get(i).respawn();
-                sessionBirdsEaten++;
-                totalBirdsEaten++;
-                
-                if (sessionBirdsEaten >= HUNGER_QUOTA) {
-                    state = State.DIGESTING;
-                    digestionTimer = 10.0;
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-}
-
-// =====================================================================
-// OISEAU (FINAL: LEADERSHIP & FATIGUE)
-// =====================================================================
-class Bird {
-    Vector3D pos, vel, acc;
-    
-    // États
-    boolean isLeader = false;
-    boolean isTired = false;
-    boolean isAlerted = false;
-    
-    double maxSpeed = 5.5;
-    double maxForce = 0.15;
-    
-    double stamina = 100;
-    double timeSpentLeading = 0; // Temps passé en tête
-    
-    double perception = 85.0;
-    double separationRad = 28.0;
-    
-    public Bird(double x, double y, double z) {
-        pos = new Vector3D(x, y, z);
-        Random r = new Random();
-        vel = new Vector3D(r.nextDouble()-0.5, r.nextDouble()-0.5, r.nextDouble()-0.5);
-        vel.normalize();
-        vel.mult(maxSpeed);
-        acc = new Vector3D(0,0,0);
-    }
-    
-    public void respawn() {
-        Random r = new Random();
-        pos = new Vector3D((r.nextDouble()*2-1)*400, (r.nextDouble()*2-1)*400, (r.nextDouble()*2-1)*400);
-        stamina = 100;
-        isTired = false;
-        timeSpentLeading = 0;
-    }
-    
-    public void applyForce(Vector3D f) { acc.add(f); }
-
-    public void flock(List<Bird> birds, Predator pred, FoodResource food, double boxSize, double dt, Vector3D wind) {
-        Vector3D sep = new Vector3D(0,0,0);
-        Vector3D ali = new Vector3D(0,0,0);
-        Vector3D coh = new Vector3D(0,0,0);
-        
-        int neighborsCount = 0;
-        int neighborsInFront = 0;
-        Vector3D myHeading = vel.copy(); myHeading.normalize();
-        
-        for (Bird other : birds) {
-            if (other == this) continue;
-            if (Math.abs(other.pos.x - pos.x) > perception) continue; 
-            
-            double dSq = Vector3D.distSq(pos, other.pos);
-            if (dSq < perception * perception && dSq > 0) {
-                ali.add(other.vel);
-                coh.add(other.pos);
-                if (dSq < separationRad * separationRad) {
-                    Vector3D diff = Vector3D.sub(pos, other.pos);
-                    diff.normalize();
-                    diff.div(Math.sqrt(dSq)); 
-                    sep.add(diff);
-                }
-                
-                // Calcul Voisins Devant (Aspiration)
-                Vector3D toOther = Vector3D.sub(other.pos, pos);
-                toOther.normalize();
-                if (myHeading.dot(toOther) > 0.3) neighborsInFront++;
-                neighborsCount++;
-            }
-        }
-        
-        // --- LOGIQUE LEADERSHIP & FATIGUE ---
-        // Je suis leader si je suis dans un groupe (>2) mais que personne n'est devant moi
-        boolean isGeometricLeader = (neighborsCount > 2 && neighborsInFront == 0);
-        
-        if (isGeometricLeader && !isTired) {
-            isLeader = true;
-            // Si je suis leader, je me fatigue (je prends le vent)
-            timeSpentLeading += dt;
-            
-            // Au bout de ~10 secondes de leadership, je craque
-            if (timeSpentLeading > 10.0) {
-                isTired = true; // Je deviens gris
-                stamina = 0;    // Plus d'énergie
-                timeSpentLeading = 0; // Reset
-            }
-        } else {
-            isLeader = false;
-            timeSpentLeading = 0;
-        }
-        
-        if (neighborsCount > 0) {
-            ali.div(neighborsCount); ali.setMag(maxSpeed); ali.sub(vel); ali.limit(maxForce);
-            coh.div(neighborsCount); coh.sub(pos); coh.setMag(maxSpeed); coh.sub(vel); coh.limit(maxForce);
-            sep.div(neighborsCount); sep.setMag(maxSpeed); sep.sub(vel); sep.limit(maxForce * 2.5);
-        }
-        
-        // --- DETECTION PRÉDATEUR ---
-        this.isAlerted = false;
-        if (pred.state == Predator.State.HUNTING) {
-            double distPredSq = Vector3D.distSq(pos, pred.pos);
-            if (distPredSq < 130 * 130) isAlerted = true;
-            if (pred.isRoaring && distPredSq < pred.roarRadius * pred.roarRadius) isAlerted = true;
-
-            if (this.isAlerted) {
-                Vector3D flee = Vector3D.sub(pos, pred.pos);
-                flee.normalize();
-                flee.mult(6.0); 
-                applyForce(flee);
-            }
-        }
-
-        // --- STAMINA (RECOUVREMENT) ---
-        // Si fatigué ou en fuite, on consomme/reste bas
-        if (isAlerted && !isTired) {
-            stamina -= 1.5; 
-            if (stamina <= 0) { stamina = 0; isTired = true; }
-        } else {
-            // Récupération naturelle
-            stamina += 0.4; 
-            if (stamina >= 100) { stamina = 100; isTired = false; }
-        }
-
-        Vector3D foodForce = new Vector3D(0,0,0);
-        if (Vector3D.distSq(pos, food.pos) < food.scentRadius*food.scentRadius) {
-            Vector3D dir = Vector3D.sub(food.pos, pos);
-            dir.normalize(); dir.mult(0.5); foodForce = dir;
-        }
-
-        Vector3D wallForce = new Vector3D(0,0,0);
-        double margin = 100;
-        double limit = boxSize/2;
-        if (pos.x > limit - margin) wallForce.x = -1.5;
-        if (pos.x < -limit + margin) wallForce.x = 1.5;
-        if (pos.y > limit - margin) wallForce.y = -1.5;
-        if (pos.y < -limit + margin) wallForce.y = 1.5;
-        if (pos.z > limit - margin) wallForce.z = -1.5;
-        if (pos.z < -limit + margin) wallForce.z = 1.5;
-
-        sep.mult(2.8); ali.mult(1.0); coh.mult(0.8);
-        applyForce(sep); applyForce(ali); applyForce(coh);
-        applyForce(wind); applyForce(foodForce); applyForce(wallForce);
-    }
-
-    public void update(double dt, double boxSize) {
-        vel.add(acc);
-        
-        double currentMax = maxSpeed;
-        double currentMin = 3.5;
-        
-        // GESTION VITESSE PAR ÉTAT
-        if (isTired) {
-            // L'oiseau fatigué ralentit significativement
-            // Cela permet aux autres (non fatigués) de le doubler
-            currentMax = maxSpeed * 0.5; 
-            currentMin = 1.0;
-        } else if (isAlerted) {
-            currentMax = maxSpeed * 1.5; 
-        }
-
-        double speed = vel.mag();
-        if (speed < 0.0001) speed = 0.0001;
-        if (speed > currentMax) vel.setMag(currentMax);
-        else if (speed < currentMin) vel.setMag(currentMin);
-        
-        pos.add(vel);
-        acc.mult(0);
-        
-        double limit = boxSize/2;
-        if (pos.x > limit) pos.x = limit; if (pos.x < -limit) pos.x = -limit;
-        if (pos.y > limit) pos.y = limit; if (pos.y < -limit) pos.y = -limit;
-        if (pos.z > limit) pos.z = limit; if (pos.z < -limit) pos.z = -limit;
-    }
-}
-
-// =====================================================================
-// MAIN & RENDU
-// =====================================================================
 public class BirdFlock3D extends JPanel implements ActionListener {
     
+	// Nombre d'oiseaux
     final int N_BIRDS = 450;
+    // Taille de la boîte
     final double BOX_SIZE = 1200;
     
     List<Bird> birds;
@@ -495,7 +70,7 @@ public class BirdFlock3D extends JPanel implements ActionListener {
         addMouseMotionListener(ma);
         addMouseWheelListener(ma);
         
-        // Panel Debug
+        // Option DEBUG du prédateur
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 10));
         bottomPanel.setBackground(new Color(25, 25, 35));
         
@@ -515,7 +90,7 @@ public class BirdFlock3D extends JPanel implements ActionListener {
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        double dt = 0.02; // Temps fixe pour la simulation (50 FPS)
+        double dt = 0.02;
         
         windField.update(dt * 2.0);
         
@@ -567,13 +142,27 @@ public class BirdFlock3D extends JPanel implements ActionListener {
 
     Point project(Vector3D v) {
         double x = v.x, y = v.y, z = v.z;
+        
+        // Rotation autour de l'axe Y (Azimut)
+        // x' = x * cos(θy) - z * sin(θy)
+        // z' = x * sin(θy) + z * cos(θy)
         double tx = x*Math.cos(camAngleY) - z*Math.sin(camAngleY);
         double tz = x*Math.sin(camAngleY) + z*Math.cos(camAngleY);
         x=tx; z=tz;
+        
+        // Rotation autour de l'axe X (Élévation)
+        // y' = y * cos(θx) - z * sin(θx)
+        // z'' = y * sin(θx) + z * cos(θx)
         double ty = y*Math.cos(camAngleX) - z*Math.sin(camAngleX);
         tz = y*Math.sin(camAngleX) + z*Math.cos(camAngleX);
         y=ty; z=tz;
+        
+        // Translation caméra (profondeur)
         z += camDist;
+        
+        // Projection Perspective (Thalès)
+        // Echelle = Focale / Profondeur
+        // X_ecran = X_monde * Echelle
         double f = 1000;
         if (z<=10) z=10;
         double s = f/z;
@@ -603,7 +192,7 @@ public class BirdFlock3D extends JPanel implements ActionListener {
         }
         List<RenderItem> renderList = new ArrayList<>();
         
-        // BOITE
+        // Affichage de la boîte
         double sz = BOX_SIZE/2;
         Vector3D[] corners = {
             new Vector3D(-sz,-sz,-sz), new Vector3D(sz,-sz,-sz), new Vector3D(sz,sz,-sz), new Vector3D(-sz,sz,-sz),
@@ -617,25 +206,28 @@ public class BirdFlock3D extends JPanel implements ActionListener {
             g2.drawLine(p1.x, p1.y, p2.x, p2.y);
         }
 
-        // PARTICULES
+        // Affichage des particules
         for(DustParticle p : particles) {
             double z = getZ(p.pos);
             if(z<10) continue;
+            // Transparence basée sur la profondeur (Fog)
+            // Alpha = k / z
             int alpha = (int)(255 * (600/z));
             if(alpha > 60) alpha = 60;
             if(alpha < 5) alpha = 5;
             renderList.add(new RenderItem(new RenderDot(z, new Color(200, 200, 255, alpha), project(p.pos))));
         }
 
-        // NOURRITURE
+        // Affichage de la nourriture
         double zFood = getZ(food.pos);
         Point pFood = project(food.pos);
+        // Taille apparente = TailleRéelle / Z
         double sizeFood = 20000 / zFood;
         double scentFood = (food.scentRadius * 2 * 1000) / zFood;
         renderList.add(new RenderItem(new RenderOval(zFood+1, new Color(0, 255, 0, 30), pFood, (int)scentFood/2, false)));
         renderList.add(new RenderItem(new RenderOval(zFood, Color.GREEN, pFood, (int)sizeFood/2, true)));
 
-        // OISEAUX
+        // Affichage des oiseaux
         int panickedCount = 0;
         int tiredCount = 0;
         for (Bird b : birds) {
@@ -671,7 +263,7 @@ public class BirdFlock3D extends JPanel implements ActionListener {
             renderList.add(new RenderItem(new RenderPolygon(z, c.darker(), poly2)));
         }
         
-        // PRÉDATEUR
+        // Affichage du prédateur
         {
             double z = getZ(predator.pos);
             Vector3D tip = predator.pos.copy();
@@ -756,6 +348,7 @@ public class BirdFlock3D extends JPanel implements ActionListener {
         g2.setColor(Color.WHITE); g2.drawString(". Poussière (Vent)", x+10, y+60);
     }
 
+    // Lancement
     public static void main(String[] args) {
         JFrame f = new JFrame("Simulation Nuée 3D - Final");
         f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
